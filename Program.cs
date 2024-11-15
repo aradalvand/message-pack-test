@@ -1,4 +1,5 @@
 ﻿using MessagePack;
+using MessagePack.Formatters;
 using MessagePack.Resolvers;
 using Vogen;
 var customResolver = CompositeResolver.Create(
@@ -38,42 +39,45 @@ public record Foo(
 [ValueObject<Guid>(Conversions.MessagePack)]
 public readonly partial struct SomeId;
 
-/// <summary>
-/// Represents an operation that succeeded (without a value) or failed with an error.
-/// </summary>
-public readonly struct Result
+public class ResultFormatter<T> : IMessagePackFormatter<Result<T>>
 {
-	private readonly Error? _error;
-	private Result(Error? error) => _error = error;
+	public Result<T> Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+	{
+		var success = reader.ReadBoolean();
+		if (success)
+		{
+			var r = options.Resolver.GetFormatter<T>();
+			var val = r!.Deserialize(ref reader, options);
+			return val;
+		}
+		else
+		{
+			var r = options.Resolver.GetFormatter<Error>();
+			var error = r!.Deserialize(ref reader, options);
+			return error;
+		}
+	}
 
-	/// <summary>
-	/// Indicates whether or not the operation succeeded.
-	/// </summary>
-	[IgnoreMember]
-	public bool Success => _error is null;
-
-	/// <summary>
-	/// Gets the error if the result represents a failure — throws if the result is successful.
-	/// </summary>
-	[IgnoreMember]
-	public Error Error => _error ?? throw new InvalidOperationException("The result doesn't contain an error.");
-
-	/// <summary>
-	/// Wraps an <see cref="Sarmashq.Error"/> object inside a <see cref="Result"/> that represents a failure.
-	/// </summary>
-	public static implicit operator Result(Error error) => new(error);
-
-	/// <summary>
-	/// A singleton instance of a successful <see cref="Result"/> with no underlying value.
-	/// </summary>
-	[IgnoreMember]
-	public static Result Ok { get; } = _ok;
-	private static readonly Result _ok = new(null);
+	public void Serialize(ref MessagePackWriter writer, Result<T> value, MessagePackSerializerOptions options)
+	{
+		writer.Write(value.Success);
+		if (value.Success)
+		{
+			var r = options.Resolver.GetFormatter<T>();
+			r!.Serialize(ref writer, value.Value, options);
+		}
+		else
+		{
+			var r = options.Resolver.GetFormatter<Error>();
+			r!.Serialize(ref writer, value.Error, options);
+		}
+	}
 }
 
 /// <summary>
 /// Represents an operation that succeeded (with a value) or failed with an error.
 /// </summary>
+[MessagePackFormatter(typeof(ResultFormatter<>))]
 [MessagePackObject]
 public readonly struct Result<T>
 {
