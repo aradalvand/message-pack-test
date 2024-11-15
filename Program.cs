@@ -13,7 +13,7 @@ var finalResolver = CompositeResolver.Create(
 MessagePackSerializer.DefaultOptions = MessagePackSerializer.DefaultOptions.WithResolver(finalResolver);
 
 Result<Foo> foo = new Foo(SomeId.From(Guid.NewGuid()), 123);
-Result<Foo> foo2 = new Error("hi", 1, ErrorKind.BadInput);
+Result<Foo> foo2 = new SomeError();
 // var foo = new Foo(SomeId.From(Guid.NewGuid()), 123);
 Console.WriteLine($"Original: {foo}");
 Console.WriteLine($"Original: {foo2}");
@@ -33,6 +33,10 @@ public record Foo(
 	SomeId Id,
 	[property: Key(1)]
 	int X
+);
+
+public record SomeError() : Error(
+	"hi", 1, ErrorKind.BadInput
 );
 
 [MessagePackFormatter(typeof(SomeIdMessagePackFormatter))]
@@ -130,7 +134,7 @@ public readonly struct Result<T>
 /// Represents an error during the execution of a command.
 /// </summary>
 [MessagePackObject]
-public record Error(string Message, int Code, ErrorKind Kind)
+public abstract record Error(string Message, int Code, ErrorKind Kind)
 {
 	/// <summary>
 	/// The human-readable message associated with the error.
