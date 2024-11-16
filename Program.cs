@@ -1,5 +1,4 @@
 ﻿using MessagePack;
-using MessagePack.Formatters;
 using MessagePack.Resolvers;
 using Vogen;
 var customResolver = CompositeResolver.Create(
@@ -13,19 +12,31 @@ var finalResolver = CompositeResolver.Create(
 MessagePackSerializer.DefaultOptions = MessagePackSerializer.DefaultOptions.WithResolver(finalResolver);
 
 Result<Foo> foo = new Foo(SomeId.From(Guid.NewGuid()), 123);
-Result<Foo> foo2 = new SomeError();
+Result<Foo> foo2 = new Error("hi", 1, ErrorKind.BadInput);
+Result foo3 = new Error("hi", 2, ErrorKind.BadInput);
+Result foo4 = Result.Ok;
 // var foo = new Foo(SomeId.From(Guid.NewGuid()), 123);
 Console.WriteLine($"Original: {foo}");
 Console.WriteLine($"Original: {foo2}");
+Console.WriteLine($"Original: {foo3}");
+Console.WriteLine($"Original: {foo4}");
 
 var bytes = MessagePackSerializer.Serialize(foo);
-Console.WriteLine($"Serialized: {bytes.Length}");
 var bytes2 = MessagePackSerializer.Serialize(foo2);
+var bytes3 = MessagePackSerializer.Serialize(foo3);
+var bytes4 = MessagePackSerializer.Serialize(foo4);
+Console.WriteLine($"Serialized: {bytes.Length}");
 Console.WriteLine($"Serialized: {bytes2.Length}");
+Console.WriteLine($"Serialized: {bytes3.Length}");
+Console.WriteLine($"Serialized: {bytes4.Length}");
 var fooDe = MessagePackSerializer.Deserialize<Result<Foo>>(bytes);
 var fooDe2 = MessagePackSerializer.Deserialize<Result<Foo>>(bytes2);
+var fooDe3 = MessagePackSerializer.Deserialize<Result>(bytes3);
+var fooDe4 = MessagePackSerializer.Deserialize<Result>(bytes4);
 Console.WriteLine($"Deserialized: {fooDe}");
 Console.WriteLine($"Deserialized: {fooDe2}");
+Console.WriteLine($"Deserialized: {fooDe3}");
+Console.WriteLine($"Deserialized: {fooDe4}");
 
 [MessagePackObject]
 public record Foo(
@@ -35,53 +46,51 @@ public record Foo(
 	int X
 );
 
-public record SomeError() : Error(
-	"hi", 1, ErrorKind.BadInput
-);
-
 [MessagePackFormatter(typeof(SomeIdMessagePackFormatter))]
 [ValueObject<Guid>(Conversions.MessagePack)]
 public readonly partial struct SomeId;
 
-public class ResultFormatter<T> : IMessagePackFormatter<Result<T>>
+/// <summary>
+/// Represents an operation that succeeded (without a value) or failed with an error.
+/// </summary>
+[MessagePackObject]
+public readonly struct Result
 {
-	public Result<T> Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
-	{
-		var success = reader.ReadBoolean();
-		if (success)
-		{
-			var r = options.Resolver.GetFormatter<T>();
-			var val = r!.Deserialize(ref reader, options);
-			return val;
-		}
-		else
-		{
-			var r = options.Resolver.GetFormatter<Error>();
-			var error = r!.Deserialize(ref reader, options);
-			return error;
-		}
-	}
+	[Key(0)]
+	private readonly Error? _error;
+	private Result(Error? error) => _error = error;
 
-	public void Serialize(ref MessagePackWriter writer, Result<T> value, MessagePackSerializerOptions options)
-	{
-		writer.Write(value.Success);
-		if (value.Success)
-		{
-			var r = options.Resolver.GetFormatter<T>();
-			r!.Serialize(ref writer, value.Value, options);
-		}
-		else
-		{
-			var r = options.Resolver.GetFormatter<Error>();
-			r!.Serialize(ref writer, value.Error, options);
-		}
-	}
+	/// <summary>
+	/// Indicates whether or not the operation succeeded.
+	/// </summary>
+	[IgnoreMember]
+	public bool Success => _error is null;
+
+	/// <summary>
+	/// Gets the error if the result represents a failure — throws if the result is successful.
+	/// </summary>
+	[IgnoreMember]
+	public Error Error => _error ?? throw new InvalidOperationException("The result doesn't contain an error.");
+
+	/// <summary>
+	/// Wraps an <see cref="Sarmashq.Error"/> object inside a <see cref="Result"/> that represents a failure.
+	/// </summary>
+	public static implicit operator Result(Error error) => new(error);
+
+	/// <summary>
+	/// A singleton instance of a successful <see cref="Result"/> with no underlying value.
+	/// </summary>
+	[IgnoreMember]
+	public static Result Ok { get; } = _ok;
+	private static readonly Result _ok = new(null);
+
+	public override string ToString() =>
+		$"Result:{(Success ? $"Success" : $"Error({_error})")}";
 }
 
 /// <summary>
 /// Represents an operation that succeeded (with a value) or failed with an error.
 /// </summary>
-[MessagePackFormatter(typeof(ResultFormatter<>))]
 [MessagePackObject]
 public readonly struct Result<T>
 {
@@ -134,7 +143,7 @@ public readonly struct Result<T>
 /// Represents an error during the execution of a command.
 /// </summary>
 [MessagePackObject]
-public abstract record Error(string Message, int Code, ErrorKind Kind)
+public record Error(string Message, int Code, ErrorKind Kind)
 {
 	/// <summary>
 	/// The human-readable message associated with the error.
