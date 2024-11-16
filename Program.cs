@@ -1,6 +1,8 @@
 ﻿using MessagePack;
 using MessagePack.Resolvers;
 using Vogen;
+using static Result;
+using static ResultExtensions;
 var customResolver = CompositeResolver.Create(
 	new SomeIdMessagePackFormatter()
 );
@@ -9,11 +11,14 @@ var finalResolver = CompositeResolver.Create(
 	AttributeFormatterResolver.Instance,
 	StandardResolverAllowPrivate.Instance
 );
+MessagePackSerializerOptions.Standard.
 MessagePackSerializer.DefaultOptions = MessagePackSerializer.DefaultOptions.WithResolver(finalResolver);
 
 Result<Foo> foo = new Foo(SomeId.From(Guid.NewGuid()), 123);
-Result<Foo> foo2 = new Error("hi", 1, ErrorKind.BadInput);
-Result foo3 = new Error("hi", 2, ErrorKind.BadInput);
+// Result<Foo> foo2 = new Error("hi", 1, ErrorKind.BadInput);
+Result<Foo> foo2 = new SomeError();
+// Result foo3 = new Error("hi", 2, ErrorKind.BadInput);
+Result foo3 = new AnotherError();
 Result foo4 = Result.Ok;
 // var foo = new Foo(SomeId.From(Guid.NewGuid()), 123);
 Console.WriteLine($"Original: {foo}");
@@ -38,12 +43,30 @@ Console.WriteLine($"Deserialized: {fooDe2}");
 Console.WriteLine($"Deserialized: {fooDe3}");
 Console.WriteLine($"Deserialized: {fooDe4}");
 
+Result<IEnumerable<int>> TryDo()
+{
+	IEnumerable<int> foo = [];
+	return Ok();
+	return Ok(foo);
+}
+
 [MessagePackObject]
 public record Foo(
 	[property: Key(0)]
 	SomeId Id,
 	[property: Key(1)]
 	int X
+);
+
+public record SomeError() : Error(
+	Message: "سلام",
+	Code: 1,
+	Kind: ErrorKind.BadInput
+);
+public record AnotherError() : Error(
+	Message: "خدافس",
+	Code: 2,
+	Kind: ErrorKind.BadInput
 );
 
 [MessagePackFormatter(typeof(SomeIdMessagePackFormatter))]
@@ -81,11 +104,17 @@ public readonly struct Result
 	/// A singleton instance of a successful <see cref="Result"/> with no underlying value.
 	/// </summary>
 	[IgnoreMember]
-	public static Result Ok { get; } = _ok;
+	public static Result Okdf;
 	private static readonly Result _ok = new(null);
+	public static Result<T> Ok<T>(T value) => value;
+
 
 	public override string ToString() =>
 		$"Result:{(Success ? $"Success" : $"Error({_error})")}";
+}
+
+public static class ResultExtensions
+{
 }
 
 /// <summary>
@@ -142,8 +171,10 @@ public readonly struct Result<T>
 /// <summary>
 /// Represents an error during the execution of a command.
 /// </summary>
+[Union(0, typeof(SomeError))]
+[Union(1, typeof(AnotherError))]
 [MessagePackObject]
-public record Error(string Message, int Code, ErrorKind Kind)
+public abstract record Error(string Message, int Code, ErrorKind Kind)
 {
 	/// <summary>
 	/// The human-readable message associated with the error.
